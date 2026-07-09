@@ -1,0 +1,124 @@
+---
+- name: "Create VirtualMachine {{ vm.name }}"
+  kubernetes.core.k8s:
+    state: present
+    wait: true
+    wait_condition:
+      type: Ready
+      status: "True"
+    wait_timeout: 600
+    definition:
+      apiVersion: kubevirt.io/v1
+      kind: VirtualMachine
+      metadata:
+        name: "{{ vm.name }}"
+        namespace: "{{ vm.namespace }}"
+        labels:
+          kubevirt.io/domain: "{{ vm.name }}"
+          app.kubernetes.io/managed-by: molecule
+      spec:
+        # [VERIFY] On Harvester >= 1.4 the UI writes `runStrategy: RerunOnFailure`
+        # instead of `running`. Both are accepted by KubeVirt; never set both.
+        running: true
+        template:
+          metadata:
+            labels:
+              kubevirt.io/domain: "{{ vm.name }}"
+          spec:
+            terminationGracePeriodSeconds: 0
+            domain:
+              cpu:
+                cores: "{{ vm.cpu_cores | default(1) | int }}"
+              devices:
+                disks:
+                  - name: containerdisk
+                    disk:
+                      bus: virtio
+                  - name: cloudinitdisk
+                    disk:
+                      bus: virtio
+                  - name: emptydisk
+                    disk:
+                      bus: virtio
+                # Explicit pod-network interface. Harvester does not inject one
+                # for API-created VMs the way the UI does.
+                interfaces:
+                  - name: default
+                    masquerade: {}
+              resources:
+                requests:
+                  memory: "{{ vm.memory | default('2Gi') }}"
+            networks:
+              - name: default
+                pod: {}
+            volumes:
+              - name: containerdisk
+                containerDisk:
+                  image: "{{ vm.image }}"
+              - name: emptydisk
+                emptyDisk:
+                  capacity: "{{ vm.capacity | default('2Gi') }}"
+              - name: cloudinitdisk
+                cloudInitNoCloud:
+                  userData: |
+                    #cloud-config
+                    preserve_hostname: false
+                    hostname: {{ vm.name }}
+                    fqdn: {{ vm.name }}
+                    prefer_fqdn_over_hostname: false
+                    package_update: false
+                    package_upgrade: false
+                    users:
+                      - default
+                      - name: {{ vm.ansible_user }}
+                        shell: /bin/bash
+                        lock_passwd: true
+                        sudo: "ALL=(ALL) NOPASSWD:ALL"
+                        ssh_authorized_keys:
+                          - "{{ temporary_ssh_public_key }}"
+
+- name: "Wait for virt-launcher pod of {{ vm.name }}"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: "{{ vm.namespace }}"
+    label_selectors:
+      - "vm.kubevirt.io/name={{ vm.name }}"
+    field_selectors:
+      - status.phase=Running
+  register: vm_pod_info
+  retries: 60
+  delay: 5
+  until: vm_pod_info.resources | length > 0
+
+- name: "Extract node name hosting {{ vm.name }}"
+  ansible.builtin.set_fact:
+    vm_node_name: "{{ vm_pod_info.resources | map(attribute='spec.nodeName') | list | first }}"
+
+# Deviation from upstream: upstream uses the *node name* as ansible_host, which
+# only works if your workstation can resolve Harvester node hostnames. We resolve
+# the node InternalIP instead. Requires cluster-scoped read on `nodes`.
+- name: "Resolve InternalIP of node {{ vm_node_name }}"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Node
+    name: "{{ vm_node_name }}"
+  register: vm_node_info
+  when: harvester_nodeport_host_override | default('') | length == 0
+
+- name: "Record NodePort host for {{ vm.name }}"
+  ansible.builtin.set_fact:
+    molecule_nodeport_hosts: >-
+      {{
+        molecule_nodeport_hosts | default({}) | combine({
+          vm.name: (
+            harvester_nodeport_host_override
+            if (harvester_nodeport_host_override | default('') | length > 0)
+            else (
+              vm_node_info.resources[0].status.addresses
+              | selectattr('type', 'eq', 'InternalIP')
+              | map(attribute='address') | first
+            )
+          )
+        })
+      }}

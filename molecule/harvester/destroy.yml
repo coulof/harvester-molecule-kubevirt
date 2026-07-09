@@ -1,0 +1,55 @@
+---
+- name: Destroy
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Delete VirtualMachine
+      kubernetes.core.k8s:
+        state: absent
+        api_version: kubevirt.io/v1
+        kind: VirtualMachine
+        name: "{{ vm.name }}"
+        namespace: "{{ vm.namespace }}"
+        wait: true
+        wait_timeout: 300
+      loop: "{{ molecule_yml.platforms }}"
+      loop_control:
+        loop_var: vm
+        label: "{{ vm.name }}"
+
+    - name: Delete NodePort Service
+      kubernetes.core.k8s:
+        state: absent
+        api_version: v1
+        kind: Service
+        name: "{{ vm.name }}"
+        namespace: "{{ vm.namespace }}"
+      loop: "{{ molecule_yml.platforms }}"
+      loop_control:
+        loop_var: vm
+        label: "{{ vm.name }}"
+
+    - name: Wait for virt-launcher pods to disappear
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ vm.namespace }}"
+        label_selectors:
+          - "vm.kubevirt.io/name={{ vm.name }}"
+      loop: "{{ molecule_yml.platforms }}"
+      loop_control:
+        loop_var: vm
+        label: "{{ vm.name }}"
+      register: leftover_pods
+      retries: 30
+      delay: 5
+      until: leftover_pods.resources | default([]) | length == 0
+
+    - name: Reset inventory
+      ansible.builtin.file:
+        path: "{{ molecule_ephemeral_directory }}/inventory/molecule_inventory.yml"
+        state: absent
+
+    - name: Refresh inventory
+      ansible.builtin.meta: refresh_inventory

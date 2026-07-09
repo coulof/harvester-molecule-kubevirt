@@ -1,0 +1,18 @@
+# Credentials and Kubeconfig
+.env
+harvester.kubeconfig
+K8S_AUTH_API_KEY
+*.kubeconfig
+*.key
+*.pem
+
+# Python & Environment
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Ansible & Molecule
+.molecule/
+.ansible/
+molecule_inventory.yml

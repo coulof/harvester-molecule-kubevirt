@@ -1,0 +1,75 @@
+---
+# Least-privilege identity for Molecule against Harvester.
+# Apply with a Harvester admin kubeconfig, then mint a token for the SA.
+#
+#   kubectl apply -f manifests/rbac.yaml
+#   kubectl -n molecule create token molecule --duration=24h
+#
+# The ClusterRole is only needed because create_vm.yml resolves the InternalIP
+# of the node hosting the VM. If you set `harvester_nodeport_host_override` in
+# molecule.yml, you can drop the ClusterRole/ClusterRoleBinding entirely.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: molecule
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: molecule
+  namespace: molecule
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: molecule
+  namespace: molecule
+rules:
+  - apiGroups: ["kubevirt.io"]
+    resources: ["virtualmachines"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
+  - apiGroups: ["kubevirt.io"]
+    resources: ["virtualmachineinstances"]
+    verbs: ["get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: molecule
+  namespace: molecule
+subjects:
+  - kind: ServiceAccount
+    name: molecule
+    namespace: molecule
+roleRef:
+  kind: Role
+  name: molecule
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: molecule-node-reader
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: molecule-node-reader
+subjects:
+  - kind: ServiceAccount
+    name: molecule
+    namespace: molecule
+roleRef:
+  kind: ClusterRole
+  name: molecule-node-reader
+  apiGroup: rbac.authorization.k8s.io

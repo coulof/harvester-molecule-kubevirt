@@ -1,0 +1,83 @@
+---
+version: "3"
+
+env:
+  SCENARIO: harvester
+  ANSIBLE_FORCE_COLOR: "1"
+
+dotenv: [".env"]
+
+tasks:
+  default:
+    cmds: [task: help]
+
+  help:
+    desc: List tasks
+    cmds:
+      - task --list
+
+  check:
+    desc: Verify cluster reachability and KubeVirt presence
+    cmds:
+      - kubectl version -o yaml | head -n 20
+      - kubectl get nodes -o wide
+      - kubectl get crd virtualmachines.kubevirt.io
+      - kubectl api-resources --api-group=kubevirt.io
+
+  deps:
+    desc: Install python + galaxy dependencies
+    cmds:
+      - pip install -r requirements.txt
+      - ansible-galaxy collection install -r requirements.yml
+
+  rbac:
+    desc: Apply the least-privilege ServiceAccount / Role / Bindings
+    cmds:
+      - kubectl apply -f manifests/rbac.yaml
+
+  token:
+    desc: Mint a 24h token for the molecule ServiceAccount
+    cmds:
+      - kubectl -n molecule create token molecule --duration=24h
+
+  create:
+    desc: Create the VMs only
+    cmds:
+      - molecule create -s "$SCENARIO"
+
+  converge:
+    desc: Create + run converge
+    cmds:
+      - molecule converge -s "$SCENARIO"
+
+  verify:
+    desc: Run the verify playbook
+    cmds:
+      - molecule verify -s "$SCENARIO"
+
+  login:
+    desc: SSH into the first platform host
+    cmds:
+      - molecule login -s "$SCENARIO" -h mol-ubuntu2404
+
+  destroy:
+    desc: Tear down the VMs and Services
+    cmds:
+      - molecule destroy -s "$SCENARIO"
+
+  test:
+    desc: Full sequence (destroy -> create -> converge -> idempotence -> verify -> destroy)
+    cmds:
+      - molecule test -s "$SCENARIO"
+
+  lint:
+    desc: Lint playbooks
+    cmds:
+      - ansible-lint
+
+  ns-clean:
+    desc: "[MANUAL] Force-remove leftovers in the molecule namespace"
+    prompt: This deletes all VMs and Services labelled managed-by=molecule. Continue?
+    cmds:
+      - kubectl -n molecule delete vm -l app.kubernetes.io/managed-by=molecule --ignore-not-found
+      - kubectl -n molecule delete svc -l app.kubernetes.io/managed-by=molecule --ignore-not-found

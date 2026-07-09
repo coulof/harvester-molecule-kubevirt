@@ -1,0 +1,23 @@
+---
+- name: Verify
+  hosts: molecule
+  gather_facts: true
+  tasks:
+    - name: Assert kernel is Linux
+      ansible.builtin.assert:
+        that: ansible_facts.system == 'Linux'
+
+    - name: Assert hostname matches the VM name
+      ansible.builtin.assert:
+        that: ansible_facts.hostname == inventory_hostname
+        fail_msg: >-
+          hostname is {{ ansible_facts.hostname }}, expected {{ inventory_hostname }}
+
+    - name: Read the converge marker
+      ansible.builtin.slurp:
+        src: /opt/molecule/marker
+      register: marker
+
+    - name: Assert marker content
+      ansible.builtin.assert:
+        that: (marker.content | b64decode | trim) == 'provisioned-by-molecule'

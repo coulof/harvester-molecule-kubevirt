@@ -1,0 +1,58 @@
+---
+dependency:
+  name: galaxy
+  options:
+    requirements-file: requirements.yml
+
+platforms:
+  - name: mol-ubuntu2404
+    image: quay.io/containerdisks/ubuntu:24.04
+    namespace: molecule
+    ansible_user: ubuntu
+    memory: 2Gi
+    cpu_cores: 1
+    capacity: 2Gi
+    ssh_service:
+      type: NodePort
+
+  # Second platform - uncomment to test a two-node matrix.
+  # - name: mol-opensuse-leap
+  #   image: quay.io/containerdisks/opensuse-leap:15.6   # [VERIFY] tag exists
+  #   namespace: molecule
+  #   ansible_user: opensuse                             # [VERIFY] default cloud user
+  #   memory: 2Gi
+  #   cpu_cores: 1
+  #   capacity: 2Gi
+  #   ssh_service:
+  #     type: NodePort
+
+provisioner:
+  name: ansible
+  config_options:
+    defaults:
+      interpreter_python: auto_silent
+      callback_result_format: yaml
+      callbacks_enabled: profile_tasks, timer
+    ssh_connection:
+      pipelining: false
+  inventory:
+    group_vars:
+      all:
+        # Override when Harvester node InternalIPs are not routable from your workstation.
+        # Set to a VIP / jump address that forwards the NodePort range.
+        harvester_nodeport_host_override: ""
+  log: true
+
+verifier:
+  name: ansible
+
+scenario:
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - converge
+    - idempotence
+    - verify
+    - destroy

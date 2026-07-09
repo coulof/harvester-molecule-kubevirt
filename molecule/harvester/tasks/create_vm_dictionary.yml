@@ -1,0 +1,25 @@
+---
+- name: "Create VM dictionary entry for {{ vm.name }}"
+  vars:
+    ssh_service_port: >-
+      {%- set svc_type = vm.ssh_service.type | default(None) -%}
+      {%- if svc_type == 'NodePort' -%}
+        {{ (node_port_services.results
+            | rejectattr('skipped', 'defined')
+            | selectattr('vm.name', '==', vm.name)
+            | first)['resources'][0]['spec']['ports'][0]['nodePort'] }}
+      {%- endif -%}
+  ansible.builtin.set_fact:
+    molecule_systems: >-
+      {{
+        molecule_systems | default({}) | combine({
+          vm.name: {
+            'ansible_user': vm.ansible_user,
+            'ansible_host': molecule_nodeport_hosts[vm.name],
+            'ansible_port': ssh_service_port | trim | int,
+            'ansible_ssh_private_key_file': temporary_ssh_key_path,
+            'ansible_ssh_common_args': '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null',
+            'ansible_python_interpreter': 'auto_silent'
+          }
+        })
+      }}

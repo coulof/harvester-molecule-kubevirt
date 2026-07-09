@@ -1,0 +1,27 @@
+---
+- name: Fail if molecule group is missing
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Assert group existence
+      ansible.builtin.assert:
+        that: "'molecule' in groups"
+        fail_msg: "molecule group was not found inside inventory groups: {{ groups }}"
+
+- name: Converge
+  hosts: molecule
+  gather_facts: true
+  become: true
+  tasks:
+    # Replace this block with `roles: [your_role]` once you have a role to test.
+    - name: Ensure a marker directory exists
+      ansible.builtin.file:
+        path: /opt/molecule
+        state: directory
+        mode: "0755"
+
+    - name: Drop a marker file
+      ansible.builtin.copy:
+        content: "provisioned-by-molecule\n"
+        dest: /opt/molecule/marker
+        mode: "0644"
